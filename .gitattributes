@@ -1,0 +1,9 @@
+accuracy_set.csv filter=lfs diff=lfs merge=lfs -text
+accuracy_table_and_ETL.csv filter=lfs diff=lfs merge=lfs -text
+negative_controls.csv filter=lfs diff=lfs merge=lfs -text
+TASBE_data.csv filter=lfs diff=lfs merge=lfs -text
+TASBE_data_partial_metadata.csv filter=lfs diff=lfs merge=lfs -text
+container_results_high.csv filter=lfs diff=lfs merge=lfs -text
+container_results_low.csv filter=lfs diff=lfs merge=lfs -text
+new_accuracy_table.csv filter=lfs diff=lfs merge=lfs -text
+positive_controls.csv filter=lfs diff=lfs merge=lfs -text
