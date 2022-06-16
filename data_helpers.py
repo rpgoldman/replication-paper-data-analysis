@@ -45,6 +45,28 @@ def all_of_strain(strain_name: str, files: List[str]) -> pd.DataFrame:
     return df
 
 def canonical_data_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Put DataFrame of Flow Cytometry data into canonical form.
+    
+    Returns
+    ~~~~~~~
+    New pd.DataFrame in canonical form.
+    
+    Canonical form is indexed by:
+    * `strain_name`
+    * `inc_temp_degrees`
+    * `inc_time_2_hrs`
+    * `od`
+    * `lab_id`
+    * `plate_id`
+    * `well`
+    * `replicate` and
+    * `event`
+    
+    Additionally, `growth_media_1` is replaced by a pandas `CategoricalDtype`, and we add
+    `inc_temp_degrees`, `inc_time_1_hrs` and `inc_time_2_hrs` columns, which are easier 
+    to deal with than the columns with units.
+    """
     df = df.copy()
     df.loc[:, 'media'] = \
         df['growth_media_1'].astype(pd.CategoricalDtype(sorted(df['growth_media_1'].unique())))
@@ -54,7 +76,8 @@ def canonical_data_frame(df: pd.DataFrame) -> pd.DataFrame:
     df_create_well_column(df)
     df.loc[:, 'replicate'] = df.groupby(['lab_id', 'plate_id', 'well']).ngroup()
     df.loc[:, 'event'] = df.groupby(['lab_id', 'plate_id', 'well']).cumcount()
-    df.drop(columns=['lab', 'plan'], inplace=True)
+    if 'lab' in df.columns or 'plan' in df.columns:
+        df.drop(columns=['lab', 'plan'], inplace=True)
     df.set_index(['strain_name', 'inc_temp_degrees', 'inc_time_2_hrs', 'od', 'lab_id', 'plate_id', 'well', 'replicate', 'event'], inplace=True)
     return df
 
