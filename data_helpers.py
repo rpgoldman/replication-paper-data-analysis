@@ -105,6 +105,7 @@ def df_create_well_column(df: pd.DataFrame) -> None:
 def gate_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     logger = logging.getLogger("data_helpers")
     query_string = '25_000 <= FSC_A <= 900_000 and 50_000 <= SSC_A <= 900_000 and 0 <= BL1_A <= 20_000'
+    
     new_df = df.query(query_string)
     logging.info(f"After gating, have gone from {df.shape[0]} events to {new_df.shape[0]}.")
     dropped_replicates = set()
@@ -112,8 +113,8 @@ def gate_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         tuple = df.iloc[0, :]['xx_lab_id'], df.iloc[0, :]['xx_well']
         dropped_replicates.add(tuple)
         return None if df.shape[0] < 10_000 else df
-    new_df.loc[:, 'xx_lab_id'] = new_df.index.get_level_values('lab_id')
-    new_df.loc[:, 'xx_well'] = new_df.index.get_level_values('well')
+    new_df.loc[:, 'xx_lab_id'] = new_df['lab_id']
+    new_df.loc[:, 'xx_well'] = new_df['well']
     
     new_df2 = new_df.groupby(['lab_id', 'well']).apply(lambda df: None if df.shape[0] < 10_000 else df)
     new_df2.drop(columns=['xx_lab_id', 'xx_well'], inplace=True)

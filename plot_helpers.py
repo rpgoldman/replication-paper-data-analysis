@@ -6,7 +6,7 @@ import numpy as np
 from typing import Optional, Tuple, Union
 
 
-def point_cloud_to_histogram(df, logscale: bool = True):
+def point_cloud_to_histogram(df, logscale: bool = True, channels: Tuple[str, str]=('FSC_A', 'SSC_A')):
     """
     Take a Pandas DataFrame with FSC_A and SSC_A channels and transform it to a
     DataFrame of counts, effectively a histogram data structure.
@@ -30,30 +30,52 @@ def point_cloud_to_histogram(df, logscale: bool = True):
     The technique of using pandas `cut` I owe to the following StackExchange
     post: https://stackoverflow.com/a/36118798/289934
     """
-    
+    x_chan = channels[0]
+    y_chan = channels[1]
+    x_bins = f'{x_chan}_bins'
+    y_bins = f'{y_chan}_bins'
+
     if logscale:
-        tmp = df.query('FSC_A > 0 and SSC_A > 0')
-        tmp = tmp.assign(FSC_A_log=np.log10(tmp['FSC_A'] + 1), SSC_A_log=np.log10(tmp['SSC_A'] + 1))
-        tmp.drop(columns=['FSC_A', 'SSC_A'], inplace=True)
-        tmp.rename(columns={'FSC_A_log': 'FSC_A', 'SSC_A_log': 'SSC_A'}, inplace=True)
-        bins = np.array([4 + 0.02 * x for x in range(0, 101)])
+        def channel_bins(chan_name: str) -> np.ndarray:
+            if chan_name in ['FSC_A', 'SSC_A']:
+                bins = np.array([4 + 0.02 * x for x in range(0, 101)])
+            elif chan_name in ['BL1_A']:
+                bins = np.array([0.04 * x for x in range(0, 101)])
+            else:
+                raise ValueError(f"Don't know how to assign bins for channel {chan_name}")
+            return bins
+
+        # replace the columns for x_chan and y_chan with log values by computing the logs and
+        # then renaming the log columns
+        tmp = df.query(f'{x_chan} > 0 and {y_chan} > 0')
+        adict = {f"{x_chan}_log": np.log10(tmp[x_chan] + 1), f"{y_chan}_log": np.log10(tmp[y_chan] + 1)}
+        tmp = tmp.assign(**adict)
+        tmp.drop(columns=list(channels), inplace=True)
+        tmp.rename(columns={f'{x_chan}_log': x_chan, f'{y_chan}_log': y_chan}, inplace=True)
+        bins4x = channel_bins(x_chan)
+        bins4y = channel_bins(y_chan)
     else:
         tmp = df.copy()
         # -100_000 to 1_100_000
-        bins = np.array([-100_000 + 10_000 * x for x in range(0, 121)])
+        bins4x = np.array([-100_000 + 10_000 * x for x in range(0, 121)])
+        bins4y = bins4x
         
-    tmp = tmp[['FSC_A', 'SSC_A']]
-    tmp.loc[:, 'FSC_A_bins'] = pd.cut(tmp['FSC_A'], bins=bins)
-    tmp.loc[:, 'SSC_A_bins'] = pd.cut(tmp['SSC_A'], bins=bins)
+    tmp = tmp[list(channels)]
+    tmp.loc[:, x_bins] = pd.cut(tmp[x_chan], bins=bins4x)
+    tmp.loc[:, y_bins] = pd.cut(tmp[y_chan], bins=bins4y)
     tmp = tmp.dropna()
-    grouped = tmp.groupby(['FSC_A_bins', 'SSC_A_bins']).agg('count').drop(columns=['SSC_A']).rename(columns={'FSC_A': 'events'})
+    # need an arbitrary count column
+    grouped = tmp.groupby([x_bins, y_bins]).agg('count').drop(columns=[y_chan]).rename(columns={x_chan: 'events'})
     grouped.reset_index(drop=False, inplace=True)
     left_side = np.vectorize(lambda interval: interval.left)
-    grouped.loc[:, 'FSC_A'] = left_side(grouped['FSC_A_bins'])
-    grouped.loc[:, 'SSC_A'] = left_side(grouped['SSC_A_bins'])
-    return grouped.drop(columns=['FSC_A_bins', 'SSC_A_bins']).pivot(columns='FSC_A', index='SSC_A').sort_index(ascending=False).droplevel(0, 'columns')
+    grouped.loc[:, x_chan] = left_side(grouped[x_bins])
+    grouped.loc[:, y_chan] = left_side(grouped[y_bins])
+    return grouped.drop(columns=[x_bins, y_bins]).pivot(columns=x_chan, index=y_chan).sort_index(ascending=False).droplevel(0, 'columns')
 
-def make_heatmap(histo: pd.DataFrame, logscale: bool, ax: Optional[mpl.axes.Axes] = None) -> mpl.axes.Axes:
+def make_heatmap(histo: pd.DataFrame, 
+                 logscale: bool, 
+                 ax: Optional[mpl.axes.Axes] = None, 
+                ) -> mpl.axes.Axes:
     """
     Plot a Pandas `DataFrame`, built by `point_cloud_to_histogram`
     as a Seaborn heatmap.
@@ -84,29 +106,43 @@ def make_heatmap(histo: pd.DataFrame, logscale: bool, ax: Optional[mpl.axes.Axes
     else:
         sns.heatmap(histo, cbar=True, cmap='viridis', ax=ax)
     if logscale:
-        ticklabels = [f"{x:.1f}" for x in [4 + 0.2 * x for x in range(0, 11)]]
+        def ticklabels(values):
+            origin = values.min()
+            incr = abs(values[1] - values[0]) * 10
+            my_ticklabels = [f"{x:.1f}" for x in [origin + incr * x for x in range(0, 11)]]
+            return my_ticklabels
+        ticklabels4x = ticklabels(histo.columns)
+        ticklabels4y = ticklabels(histo.index)
         ticks = np.array([10 * x for x in range(0, 11)])
     else:
-        ticklabels = ["%d"%(100_000 * x -100_000) for x in range(0, 13)]
+        ticklabels4x = ["%d"%(100_000 * x -100_000) for x in range(0, 13)]
+        ticklabels4y = ticklabels4x.reverse()
         ticks = np.array([10 * x for x in range(0, 13)])
     ax.set_xticks(ticks)
     ax.set_yticks(ticks)
-    ax.set_xticklabels(ticklabels)
-    ticklabels.reverse()
-    ax.set_yticklabels(ticklabels)
+    ax.set_xticklabels(ticklabels4x)
+    ax.set_yticklabels(ticklabels4y)
     return ax
 
-def translate(x: Union[float, Tuple[float, float]], y:Optional[float] = None, logscale: bool = False) -> Tuple[float, float]:
+def translate(x: Union[float, Tuple[float, float]],
+              y:Optional[float] = None,
+              logscale: bool = False) -> Tuple[float, float]:
     if y is None:
         assert isinstance(x, tuple) and len(x) == 2
         y = x[1]
         x = x[0]
     if logscale:
-        raise NotImplementedError("Need to add heatmap translation for logscale plots")
-    # x does not need origin correction
-    xcoord = x + 100_000 # origin is -100_000
-    # scale
-    xcoord = xcoord / 10_000
-    ycoord = 1_100_000 - y
-    ycoord = ycoord / 10_000
+        x_origin = x.min()
+        x_incr = x[1] - x[0]
+        xcoord = (x - x_origin)/x_incr * 10 # origin is 4.0
+        y_incr = abs(y[1] - y[0])
+        y_origin = y.max() + y_incr
+        ycoord = (y_origin - y)/y_incr * 10
+    else:
+        # x does not need origin correction
+        xcoord = x + 100_000 # origin is -100_000
+        # scale
+        xcoord = xcoord / 10_000
+        ycoord = 1_100_000 - y
+        ycoord = ycoord / 10_000
     return xcoord, ycoord
